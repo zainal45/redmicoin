@@ -123,6 +123,7 @@ export const useStore = create<AppState>((set, get) => ({
       const updatedToken: Token = {
         ...token,
         soldSupply: newSoldSupply,
+        availableSupply: 800_000_000 - newSoldSupply,
         priceInSol: newPrice,
         marketCap: calculateMarketCap(newSoldSupply),
         bondingCurveProgress: calculateBondingCurveProgress(newSoldSupply),
@@ -186,6 +187,7 @@ export const useStore = create<AppState>((set, get) => ({
       const updatedToken: Token = {
         ...token,
         soldSupply: newSoldSupply,
+        availableSupply: 800_000_000 - newSoldSupply,
         priceInSol: newPrice,
         marketCap: calculateMarketCap(newSoldSupply),
         bondingCurveProgress: calculateBondingCurveProgress(newSoldSupply),

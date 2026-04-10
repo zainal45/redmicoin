@@ -11,7 +11,7 @@
 const INITIAL_VIRTUAL_SOL = 30; // Virtual SOL in the pool
 const INITIAL_VIRTUAL_TOKENS = 1_000_000_000; // 1B virtual tokens
 const K = INITIAL_VIRTUAL_SOL * INITIAL_VIRTUAL_TOKENS; // Constant product invariant (30B)
-const GRADUATION_MARKET_CAP = 69_000; // $69k market cap in SOL (~$69k at ~$1/SOL for demo)
+const GRADUATION_MARKET_CAP = 750; // Market cap in SOL when 100% of bonding supply is sold
 const TOTAL_BONDING_SUPPLY = 800_000_000; // 800M tokens available on bonding curve
 
 export function calculatePrice(soldSupply: number): number {

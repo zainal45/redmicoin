@@ -11,7 +11,6 @@ import {
   formatNumber,
   formatSol,
   shortenAddress,
-  GRADUATION_MARKET_CAP,
 } from "@/lib/bonding-curve";
 import { timeAgo } from "@/lib/utils";
 import {
@@ -195,8 +194,8 @@ export default function TokenDetailPage() {
             />
           </div>
           <p className="mt-1 text-xs text-gray-600">
-            When the market cap reaches {formatNumber(GRADUATION_MARKET_CAP)} SOL, the
-            token graduates to DEX and liquidity is deposited.
+            When 100% of bonding curve supply is sold, the token graduates
+            to DEX and liquidity is deposited.
           </p>
         </div>
       </div>
