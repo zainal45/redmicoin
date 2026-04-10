@@ -10,14 +10,15 @@
 
 const INITIAL_VIRTUAL_SOL = 30; // Virtual SOL in the pool
 const INITIAL_VIRTUAL_TOKENS = 1_000_000_000; // 1B virtual tokens
+const K = INITIAL_VIRTUAL_SOL * INITIAL_VIRTUAL_TOKENS; // Constant product invariant (30B)
 const GRADUATION_MARKET_CAP = 69_000; // $69k market cap in SOL (~$69k at ~$1/SOL for demo)
 const TOTAL_BONDING_SUPPLY = 800_000_000; // 800M tokens available on bonding curve
 
 export function calculatePrice(soldSupply: number): number {
-  const virtualSol = INITIAL_VIRTUAL_SOL;
   const remainingTokens = INITIAL_VIRTUAL_TOKENS - soldSupply;
   if (remainingTokens <= 0) return Infinity;
-  return virtualSol / remainingTokens;
+  const currentVirtualSol = K / remainingTokens;
+  return currentVirtualSol / remainingTokens;
 }
 
 export function calculateBuyPrice(soldSupply: number, solAmount: number): {
@@ -25,12 +26,11 @@ export function calculateBuyPrice(soldSupply: number, solAmount: number): {
   avgPrice: number;
   newPrice: number;
 } {
-  const virtualSol = INITIAL_VIRTUAL_SOL;
   const remainingTokens = INITIAL_VIRTUAL_TOKENS - soldSupply;
-  const k = virtualSol * remainingTokens;
+  const currentVirtualSol = K / remainingTokens;
   
-  const newVirtualSol = virtualSol + solAmount;
-  const newRemainingTokens = k / newVirtualSol;
+  const newVirtualSol = currentVirtualSol + solAmount;
+  const newRemainingTokens = K / newVirtualSol;
   const tokensOut = remainingTokens - newRemainingTokens;
   
   const avgPrice = solAmount / tokensOut;
@@ -44,13 +44,12 @@ export function calculateSellPrice(soldSupply: number, tokenAmount: number): {
   avgPrice: number;
   newPrice: number;
 } {
-  const virtualSol = INITIAL_VIRTUAL_SOL;
   const remainingTokens = INITIAL_VIRTUAL_TOKENS - soldSupply;
-  const k = virtualSol * remainingTokens;
+  const currentVirtualSol = K / remainingTokens;
   
   const newRemainingTokens = remainingTokens + tokenAmount;
-  const newVirtualSol = k / newRemainingTokens;
-  const solOut = virtualSol - newVirtualSol;
+  const newVirtualSol = K / newRemainingTokens;
+  const solOut = currentVirtualSol - newVirtualSol;
   
   const avgPrice = solOut / tokenAmount;
   const newPrice = newVirtualSol / newRemainingTokens;

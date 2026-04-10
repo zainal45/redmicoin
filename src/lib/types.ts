@@ -49,4 +49,5 @@ export interface WalletState {
   connected: boolean;
   address: string | null;
   balance: number;
+  tokenBalances: Record<string, number>;
 }

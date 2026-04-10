@@ -42,6 +42,7 @@ export const useStore = create<AppState>((set, get) => ({
     connected: false,
     address: null,
     balance: 100,
+    tokenBalances: {},
   },
 
   connectWallet: () => {
@@ -50,6 +51,7 @@ export const useStore = create<AppState>((set, get) => ({
         connected: true,
         address: generateAddress(),
         balance: 100,
+        tokenBalances: {},
       },
     });
   },
@@ -60,6 +62,7 @@ export const useStore = create<AppState>((set, get) => ({
         connected: false,
         address: null,
         balance: 0,
+        tokenBalances: {},
       },
     });
   },
@@ -134,11 +137,17 @@ export const useStore = create<AppState>((set, get) => ({
       const newTokens = [...state.tokens];
       newTokens[tokenIndex] = updatedToken;
 
+      const currentTokenBalance = state.wallet.tokenBalances[tokenId] || 0;
+
       return {
         tokens: newTokens,
         wallet: {
           ...state.wallet,
           balance: state.wallet.balance - solAmount,
+          tokenBalances: {
+            ...state.wallet.tokenBalances,
+            [tokenId]: currentTokenBalance + tokensOut,
+          },
         },
       };
     });
@@ -148,11 +157,16 @@ export const useStore = create<AppState>((set, get) => ({
     const state = get();
     if (!state.wallet.connected) return;
 
+    const userTokenBalance = state.wallet.tokenBalances[tokenId] || 0;
+    if (tokenAmount > userTokenBalance) return;
+
     set((state) => {
       const tokenIndex = state.tokens.findIndex((t) => t.id === tokenId);
       if (tokenIndex === -1) return state;
 
       const token = state.tokens[tokenIndex];
+      if (tokenAmount > token.soldSupply) return state;
+
       const { solOut, avgPrice, newPrice } = calculateSellPrice(
         token.soldSupply,
         tokenAmount
@@ -185,11 +199,17 @@ export const useStore = create<AppState>((set, get) => ({
       const newTokens = [...state.tokens];
       newTokens[tokenIndex] = updatedToken;
 
+      const currentTokenBalance = state.wallet.tokenBalances[tokenId] || 0;
+
       return {
         tokens: newTokens,
         wallet: {
           ...state.wallet,
           balance: state.wallet.balance + solOut,
+          tokenBalances: {
+            ...state.wallet.tokenBalances,
+            [tokenId]: currentTokenBalance - tokenAmount,
+          },
         },
       };
     });

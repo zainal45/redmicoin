@@ -74,6 +74,9 @@ export default function TradePanel({ token }: TradePanelProps) {
           {wallet.connected && mode === "buy" && (
             <span>Balance: {formatSol(wallet.balance)} SOL</span>
           )}
+          {wallet.connected && mode === "sell" && (
+            <span>Balance: {formatNumber(wallet.tokenBalances[token.id] || 0)} {token.ticker}</span>
+          )}
         </div>
         <div className="mt-1 flex items-center rounded-lg border border-gray-700 bg-gray-800 px-3 py-2">
           <input
@@ -143,7 +146,7 @@ export default function TradePanel({ token }: TradePanelProps) {
         ) : (
           <button
             onClick={handleTrade}
-            disabled={numAmount <= 0 || (mode === "buy" && numAmount > wallet.balance)}
+            disabled={numAmount <= 0 || (mode === "buy" && numAmount > wallet.balance) || (mode === "sell" && numAmount > (wallet.tokenBalances[token.id] || 0))}
             className={cn(
               "flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
               mode === "buy"
