@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Token } from "@/lib/types";
-import { formatSol } from "@/lib/bonding-curve";
+import { formatUsd } from "@/lib/bonding-curve";
 import { timeAgo } from "@/lib/utils";
 import { TrendingUp, MessageCircle, Clock } from "lucide-react";
 
@@ -14,12 +14,6 @@ export default function TokenCard({ token }: TokenCardProps) {
   return (
     <Link href={`/token/${token.id}`}>
       <div className="group relative overflow-hidden rounded-xl border border-gray-800 bg-gray-900/50 p-4 transition-all hover:border-green-500/50 hover:bg-gray-900/80 hover:shadow-lg hover:shadow-green-500/5">
-        {token.graduated && (
-          <div className="absolute right-2 top-2 rounded-full bg-green-500/20 px-2 py-0.5 text-xs font-semibold text-green-400">
-            Graduated
-          </div>
-        )}
-
         <div className="flex gap-3">
           <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg bg-gray-800">
             <img
@@ -35,7 +29,7 @@ export default function TokenCard({ token }: TokenCardProps) {
                 {token.name}
               </h3>
               <span className="flex-shrink-0 text-xs text-gray-500">
-                ${token.ticker}
+                {token.ticker}
               </span>
             </div>
             <p className="mt-0.5 text-xs text-gray-500 line-clamp-2">
@@ -49,7 +43,7 @@ export default function TokenCard({ token }: TokenCardProps) {
             <TrendingUp className="h-3 w-3" />
             <span>MC: </span>
             <span className="font-semibold text-green-400">
-              {formatSol(token.marketCap)} SOL
+              {formatUsd(token.marketCap)}
             </span>
           </div>
           <div className="flex items-center gap-3 text-gray-500">
@@ -66,7 +60,7 @@ export default function TokenCard({ token }: TokenCardProps) {
 
         <div className="mt-2">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-500">Bonding Curve</span>
+            <span className="text-gray-500">Curve Progress</span>
             <span className="font-semibold text-green-400">
               {token.bondingCurveProgress.toFixed(1)}%
             </span>

@@ -1,18 +1,22 @@
 /**
  * Bonding Curve Implementation
  * 
- * Uses a simplified constant product formula similar to pump.fun:
+ * Uses a simplified constant product formula:
  * price = k * (soldSupply / totalSupply)^2
  * 
- * As more tokens are bought, the price increases quadratically.
- * When bondingCurveProgress reaches 100%, the token graduates to DEX.
+ * As more POIN are bought, the price increases.
+ * All prices are in USD.
  */
 
-const INITIAL_VIRTUAL_SOL = 30; // Virtual SOL in the pool
+const INITIAL_VIRTUAL_USD = 30; // Virtual USD in the pool
 const INITIAL_VIRTUAL_TOKENS = 1_000_000_000; // 1B virtual tokens
-const K = INITIAL_VIRTUAL_SOL * INITIAL_VIRTUAL_TOKENS; // Constant product invariant (30B)
-const GRADUATION_MARKET_CAP = 750; // Market cap in SOL when 100% of bonding supply is sold
-const TOTAL_BONDING_SUPPLY = 800_000_000; // 800M tokens available on bonding curve
+const K = INITIAL_VIRTUAL_USD * INITIAL_VIRTUAL_TOKENS; // Constant product invariant (30B)
+const TOTAL_BONDING_SUPPLY = 800_000_000; // 800M POIN available on bonding curve
+
+// Fee constants
+export const CREATOR_BUY_FEE_RATE = 0.05; // 5% creator fee on buy
+export const APP_BUY_FEE_RATE = 0.015; // 1.5% app fee on buy
+export const APP_SELL_FEE_RATE = 0.015; // 1.5% app fee on sell
 
 export function calculatePrice(soldSupply: number): number {
   const remainingTokens = INITIAL_VIRTUAL_TOKENS - soldSupply;
@@ -76,14 +80,16 @@ export function formatNumber(num: number): string {
   return num.toFixed(8);
 }
 
-export function formatSol(num: number): string {
-  if (num >= 1000) return formatNumber(num);
-  if (num >= 1) return num.toFixed(4);
-  return num.toFixed(6);
+export function formatUsd(num: number): string {
+  if (num >= 1_000_000) return '$' + (num / 1_000_000).toFixed(2) + 'M';
+  if (num >= 1_000) return '$' + (num / 1_000).toFixed(2) + 'K';
+  if (num >= 1) return '$' + num.toFixed(2);
+  if (num >= 0.01) return '$' + num.toFixed(4);
+  return '$' + num.toFixed(6);
 }
 
 export function shortenAddress(address: string): string {
   return address.slice(0, 4) + '...' + address.slice(-4);
 }
 
-export { GRADUATION_MARKET_CAP, TOTAL_BONDING_SUPPLY, INITIAL_VIRTUAL_TOKENS };
+export { TOTAL_BONDING_SUPPLY, INITIAL_VIRTUAL_TOKENS, INITIAL_VIRTUAL_USD };

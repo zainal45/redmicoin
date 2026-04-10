@@ -10,6 +10,10 @@ import {
   calculateBondingCurveProgress,
   TOTAL_BONDING_SUPPLY,
   INITIAL_VIRTUAL_TOKENS,
+  INITIAL_VIRTUAL_USD,
+  CREATOR_BUY_FEE_RATE,
+  APP_BUY_FEE_RATE,
+  APP_SELL_FEE_RATE,
 } from "./bonding-curve";
 import { MOCK_TOKENS } from "./mock-data";
 
@@ -18,8 +22,8 @@ interface AppState {
   wallet: WalletState;
   connectWallet: () => void;
   disconnectWallet: () => void;
-  createToken: (token: Omit<Token, "id" | "createdAt" | "marketCap" | "virtualLiquidity" | "totalSupply" | "availableSupply" | "soldSupply" | "priceInSol" | "bondingCurveProgress" | "graduated" | "comments" | "trades" | "priceHistory">) => string;
-  buyToken: (tokenId: string, solAmount: number) => void;
+  createToken: (token: Omit<Token, "id" | "createdAt" | "marketCap" | "virtualLiquidity" | "totalSupply" | "availableSupply" | "soldSupply" | "priceInUsd" | "bondingCurveProgress" | "comments" | "trades" | "priceHistory">) => string;
+  buyToken: (tokenId: string, usdAmount: number) => void;
   sellToken: (tokenId: string, tokenAmount: number) => void;
   addComment: (tokenId: string, content: string) => void;
   getToken: (id: string) => Token | undefined;
@@ -82,9 +86,8 @@ export const useStore = create<AppState>((set, get) => ({
       totalSupply: 1_000_000_000,
       availableSupply: 800_000_000,
       soldSupply: 0,
-      priceInSol: initialPrice,
+      priceInUsd: initialPrice,
       bondingCurveProgress: 0,
-      graduated: false,
       comments: [],
       trades: [],
       priceHistory: [{ timestamp: now, price: initialPrice, volume: 0 }],
@@ -97,45 +100,53 @@ export const useStore = create<AppState>((set, get) => ({
     return id;
   },
 
-  buyToken: (tokenId, solAmount) => {
+  buyToken: (tokenId, usdAmount) => {
     const state = get();
-    if (!state.wallet.connected || solAmount <= 0 || state.wallet.balance < solAmount) return;
+    if (!state.wallet.connected || usdAmount <= 0 || state.wallet.balance < usdAmount) return;
 
     set((state) => {
       const tokenIndex = state.tokens.findIndex((t) => t.id === tokenId);
       if (tokenIndex === -1) return state;
 
       const token = state.tokens[tokenIndex];
-      if (token.graduated) return state;
+
+      // Calculate fees: 5% creator fee + 1.5% app fee on buy
+      const creatorFee = usdAmount * CREATOR_BUY_FEE_RATE;
+      const appFee = usdAmount * APP_BUY_FEE_RATE;
+      const netUsdForTokens = usdAmount - creatorFee - appFee;
 
       let { tokensOut, avgPrice, newPrice } = calculateBuyPrice(
         token.soldSupply,
-        solAmount
+        netUsdForTokens
       );
 
       // Cap purchase so soldSupply does not exceed TOTAL_BONDING_SUPPLY
-      let actualSolCost = solAmount;
+      let actualUsdCost = netUsdForTokens;
       if (token.soldSupply + tokensOut > TOTAL_BONDING_SUPPLY) {
         tokensOut = TOTAL_BONDING_SUPPLY - token.soldSupply;
         if (tokensOut <= 0) return state;
-        // Compute actual SOL cost for capped tokens using constant product: K = virtualSol * virtualTokens
-        const K = INITIAL_VIRTUAL_TOKENS * 30; // 30 = INITIAL_VIRTUAL_SOL
+        const K = INITIAL_VIRTUAL_TOKENS * INITIAL_VIRTUAL_USD;
         const remainingBefore = INITIAL_VIRTUAL_TOKENS - token.soldSupply;
-        const virtualSolBefore = K / remainingBefore;
+        const virtualUsdBefore = K / remainingBefore;
         const remainingAfter = remainingBefore - tokensOut;
-        const virtualSolAfter = K / remainingAfter;
-        actualSolCost = virtualSolAfter - virtualSolBefore;
-        avgPrice = actualSolCost / tokensOut;
-        newPrice = virtualSolAfter / remainingAfter;
+        const virtualUsdAfter = K / remainingAfter;
+        actualUsdCost = virtualUsdAfter - virtualUsdBefore;
+        avgPrice = actualUsdCost / tokensOut;
+        newPrice = virtualUsdAfter / remainingAfter;
       }
+
+      // Total cost = actual USD for tokens + fees
+      const totalCost = actualUsdCost + creatorFee + appFee;
 
       const newTrade: Trade = {
         id: generateId(),
         type: "buy",
         trader: state.wallet.address || "unknown",
-        amountSol: actualSolCost,
+        amountUsd: actualUsdCost,
         amountToken: tokensOut,
         pricePerToken: avgPrice,
+        creatorFee,
+        appFee,
         timestamp: Date.now(),
       };
 
@@ -143,15 +154,14 @@ export const useStore = create<AppState>((set, get) => ({
       const updatedToken: Token = {
         ...token,
         soldSupply: newSoldSupply,
-        availableSupply: 800_000_000 - newSoldSupply,
-        priceInSol: newPrice,
+        availableSupply: TOTAL_BONDING_SUPPLY - newSoldSupply,
+        priceInUsd: newPrice,
         marketCap: calculateMarketCap(newSoldSupply),
         bondingCurveProgress: calculateBondingCurveProgress(newSoldSupply),
-        graduated: calculateBondingCurveProgress(newSoldSupply) >= 100,
         trades: [newTrade, ...token.trades],
         priceHistory: [
           ...token.priceHistory,
-          { timestamp: Date.now(), price: newPrice, volume: actualSolCost },
+          { timestamp: Date.now(), price: newPrice, volume: actualUsdCost },
         ],
       };
 
@@ -164,7 +174,7 @@ export const useStore = create<AppState>((set, get) => ({
         tokens: newTokens,
         wallet: {
           ...state.wallet,
-          balance: state.wallet.balance - actualSolCost,
+          balance: state.wallet.balance - totalCost,
           tokenBalances: {
             ...state.wallet.tokenBalances,
             [tokenId]: currentTokenBalance + tokensOut,
@@ -186,21 +196,26 @@ export const useStore = create<AppState>((set, get) => ({
       if (tokenIndex === -1) return state;
 
       const token = state.tokens[tokenIndex];
-      if (token.graduated) return state;
       if (tokenAmount > token.soldSupply) return state;
 
-      const { solOut, avgPrice, newPrice } = calculateSellPrice(
+      const { solOut: grossUsdOut, avgPrice, newPrice } = calculateSellPrice(
         token.soldSupply,
         tokenAmount
       );
+
+      // 1.5% app fee on sell
+      const appFee = grossUsdOut * APP_SELL_FEE_RATE;
+      const netUsdOut = grossUsdOut - appFee;
 
       const newTrade: Trade = {
         id: generateId(),
         type: "sell",
         trader: state.wallet.address || "unknown",
-        amountSol: solOut,
+        amountUsd: grossUsdOut,
         amountToken: tokenAmount,
         pricePerToken: avgPrice,
+        creatorFee: 0,
+        appFee,
         timestamp: Date.now(),
       };
 
@@ -208,15 +223,14 @@ export const useStore = create<AppState>((set, get) => ({
       const updatedToken: Token = {
         ...token,
         soldSupply: newSoldSupply,
-        availableSupply: 800_000_000 - newSoldSupply,
-        priceInSol: newPrice,
+        availableSupply: TOTAL_BONDING_SUPPLY - newSoldSupply,
+        priceInUsd: newPrice,
         marketCap: calculateMarketCap(newSoldSupply),
         bondingCurveProgress: calculateBondingCurveProgress(newSoldSupply),
-        graduated: token.graduated || calculateBondingCurveProgress(newSoldSupply) >= 100,
         trades: [newTrade, ...token.trades],
         priceHistory: [
           ...token.priceHistory,
-          { timestamp: Date.now(), price: newPrice, volume: solOut },
+          { timestamp: Date.now(), price: newPrice, volume: grossUsdOut },
         ],
       };
 
@@ -229,7 +243,7 @@ export const useStore = create<AppState>((set, get) => ({
         tokens: newTokens,
         wallet: {
           ...state.wallet,
-          balance: state.wallet.balance + solOut,
+          balance: state.wallet.balance + netUsdOut,
           tokenBalances: {
             ...state.wallet.tokenBalances,
             [tokenId]: currentTokenBalance - tokenAmount,

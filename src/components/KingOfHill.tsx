@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Token } from "@/lib/types";
-import { formatSol } from "@/lib/bonding-curve";
+import { formatUsd } from "@/lib/bonding-curve";
 import { Crown, TrendingUp } from "lucide-react";
 
 interface KingOfHillProps {
@@ -36,12 +36,12 @@ export default function KingOfHill({ token }: KingOfHillProps) {
           <div>
             <h2 className="text-xl font-bold text-white">
               {token.name}{" "}
-              <span className="text-sm text-gray-500">${token.ticker}</span>
+              <span className="text-sm text-gray-500">{token.ticker}</span>
             </h2>
             <div className="mt-1 flex items-center gap-3 text-sm">
               <span className="flex items-center gap-1 text-green-400">
                 <TrendingUp className="h-3 w-3" />
-                MC: {formatSol(token.marketCap)} SOL
+                MC: {formatUsd(token.marketCap)}
               </span>
               <span className="text-gray-500">
                 Progress: {token.bondingCurveProgress.toFixed(1)}%

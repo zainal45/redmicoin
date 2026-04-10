@@ -9,7 +9,7 @@ import CommentSection from "@/components/CommentSection";
 import TradeHistory from "@/components/TradeHistory";
 import {
   formatNumber,
-  formatSol,
+  formatUsd,
   shortenAddress,
 } from "@/lib/bonding-curve";
 import { timeAgo } from "@/lib/utils";
@@ -34,7 +34,7 @@ export default function TokenDetailPage() {
   if (!token) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
-        <h1 className="text-2xl font-bold text-gray-400">Token not found</h1>
+        <h1 className="text-2xl font-bold text-gray-400">POIN not found</h1>
         <Link
           href="/"
           className="mt-4 flex items-center gap-2 text-green-400 hover:text-green-300"
@@ -58,7 +58,7 @@ export default function TokenDetailPage() {
         className="inline-flex items-center gap-2 text-sm text-gray-400 hover:text-green-400 transition-colors"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to Tokens
+        Back to POINs
       </Link>
 
       {/* Token Header */}
@@ -76,13 +76,8 @@ export default function TokenDetailPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-2xl font-bold text-white">{token.name}</h1>
               <span className="rounded-full bg-gray-800 px-3 py-0.5 text-sm text-gray-400">
-                ${token.ticker}
+                {token.ticker}
               </span>
-              {token.graduated && (
-                <span className="rounded-full bg-green-500/20 px-3 py-0.5 text-xs font-semibold text-green-400">
-                  Graduated to DEX
-                </span>
-              )}
             </div>
 
             <p className="mt-2 text-sm text-gray-400">{token.description}</p>
@@ -145,7 +140,7 @@ export default function TokenDetailPage() {
               Market Cap
             </div>
             <div className="mt-1 text-sm font-bold text-green-400">
-              {formatSol(token.marketCap)} SOL
+              {formatUsd(token.marketCap)}
             </div>
           </div>
           <div className="rounded-lg border border-gray-800 bg-gray-800/50 p-3">
@@ -154,7 +149,7 @@ export default function TokenDetailPage() {
               Price
             </div>
             <div className="mt-1 text-sm font-bold text-white">
-              {formatSol(token.priceInSol)} SOL
+              {formatUsd(token.priceInUsd)}
             </div>
           </div>
           <div className="rounded-lg border border-gray-800 bg-gray-800/50 p-3">
@@ -194,11 +189,29 @@ export default function TokenDetailPage() {
             />
           </div>
           <p className="mt-1 text-xs text-gray-600">
-            When 100% of bonding curve supply is sold, the token graduates
-            to DEX and liquidity is deposited.
+            POIN price increases as more people buy. Sell anytime on the bonding curve.
           </p>
         </div>
       </div>
+
+      {/* YouTube Live Stream */}
+      {token.youtubeUrl && (
+        <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">
+          <h3 className="mb-3 text-sm font-semibold text-gray-400 flex items-center gap-2">
+            <span className="inline-block h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+            Live Stream
+          </h3>
+          <div className="relative w-full overflow-hidden rounded-lg" style={{ paddingBottom: '56.25%' }}>
+            <iframe
+              src={token.youtubeUrl}
+              title={`${token.name} Live Stream`}
+              className="absolute inset-0 h-full w-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        </div>
+      )}
 
       {/* Chart and Trade Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

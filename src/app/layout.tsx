@@ -6,8 +6,8 @@ import Navbar from "@/components/Navbar";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "RedmiCoin - Token Launchpad",
-  description: "Launch and trade meme tokens with bonding curves. The ultimate token launchpad on Solana.",
+  title: "RedmiPoin - Live Stream Trading",
+  description: "Trade live streaming assets with bonding curves. Buy and sell POINs tied to live streams.",
 };
 
 export default function RootLayout({

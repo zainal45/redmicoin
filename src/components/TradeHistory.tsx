@@ -1,7 +1,7 @@
 "use client";
 
 import { Token } from "@/lib/types";
-import { shortenAddress, formatNumber, formatSol } from "@/lib/bonding-curve";
+import { shortenAddress, formatNumber, formatUsd } from "@/lib/bonding-curve";
 import { timeAgo } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { ArrowUpRight, ArrowDownRight } from "lucide-react";
@@ -48,10 +48,10 @@ export default function TradeHistory({ token }: TradeHistoryProps) {
               </div>
               <div className="text-right">
                 <div className="text-xs text-gray-300">
-                  {formatSol(trade.amountSol)} SOL
+                  {formatUsd(trade.amountUsd)}
                 </div>
                 <div className="text-xs text-gray-500">
-                  {formatNumber(trade.amountToken)} tokens &middot;{" "}
+                  {formatNumber(trade.amountToken)} POIN &middot;{" "}
                   {timeAgo(trade.timestamp)}
                 </div>
               </div>

@@ -11,9 +11,9 @@ export interface Token {
   totalSupply: number;
   availableSupply: number;
   soldSupply: number;
-  priceInSol: number;
+  priceInUsd: number;
   bondingCurveProgress: number; // 0-100
-  graduated: boolean;
+  youtubeUrl?: string;
   website?: string;
   twitter?: string;
   telegram?: string;
@@ -33,9 +33,11 @@ export interface Trade {
   id: string;
   type: "buy" | "sell";
   trader: string;
-  amountSol: number;
+  amountUsd: number;
   amountToken: number;
   pricePerToken: number;
+  creatorFee: number;
+  appFee: number;
   timestamp: number;
 }
 

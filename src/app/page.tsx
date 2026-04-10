@@ -58,10 +58,10 @@ export default function Home() {
       {/* Hero Section */}
       <div className="text-center py-8">
         <h1 className="text-4xl font-bold bg-gradient-to-r from-green-400 via-emerald-300 to-purple-500 bg-clip-text text-transparent">
-          Launch & Trade Tokens
+          Launch & Trade POINs
         </h1>
         <p className="mt-2 text-gray-400 max-w-xl mx-auto">
-          Create your own token with a bonding curve. Buy early, sell high. When the market cap reaches the target, it graduates to DEX.
+          Trade live streaming assets with bonding curves. Buy POINs tied to live streams. Creator performance drives value.
         </p>
       </div>
 
@@ -76,7 +76,7 @@ export default function Home() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tokens..."
+            placeholder="Search POINs..."
             className="w-full rounded-lg border border-gray-800 bg-gray-900 py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-gray-600 outline-none focus:border-green-500 transition-colors"
           />
         </div>
@@ -109,9 +109,9 @@ export default function Home() {
 
       {filteredTokens.length === 0 && (
         <div className="text-center py-16">
-          <p className="text-gray-500 text-lg">No tokens found</p>
+          <p className="text-gray-500 text-lg">No POINs found</p>
           <p className="text-gray-600 text-sm mt-1">
-            Try a different search or create a new token!
+            Try a different search or create a new POIN!
           </p>
         </div>
       )}
@@ -120,13 +120,13 @@ export default function Home() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-6">
         <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 text-center">
           <div className="text-2xl font-bold text-green-400">{tokens.length}</div>
-          <div className="text-xs text-gray-500 mt-1">Total Tokens</div>
+          <div className="text-xs text-gray-500 mt-1">Total POINs</div>
         </div>
         <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 text-center">
           <div className="text-2xl font-bold text-purple-400">
-            {tokens.filter((t) => t.graduated).length}
+            {tokens.filter((t) => t.youtubeUrl).length}
           </div>
-          <div className="text-xs text-gray-500 mt-1">Graduated</div>
+          <div className="text-xs text-gray-500 mt-1">Live Streams</div>
         </div>
         <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 text-center">
           <div className="text-2xl font-bold text-yellow-400">

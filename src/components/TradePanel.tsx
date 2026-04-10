@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Token } from "@/lib/types";
 import { useStore } from "@/lib/store";
-import { formatNumber, formatSol, calculateBuyPrice, calculateSellPrice, TOTAL_BONDING_SUPPLY, INITIAL_VIRTUAL_TOKENS } from "@/lib/bonding-curve";
+import { formatNumber, formatUsd, calculateBuyPrice, calculateSellPrice, TOTAL_BONDING_SUPPLY, INITIAL_VIRTUAL_TOKENS, INITIAL_VIRTUAL_USD, CREATOR_BUY_FEE_RATE, APP_BUY_FEE_RATE, APP_SELL_FEE_RATE } from "@/lib/bonding-curve";
 import { cn } from "@/lib/utils";
 import { ArrowDownUp, Wallet } from "lucide-react";
 
@@ -18,8 +18,13 @@ export default function TradePanel({ token }: TradePanelProps) {
 
   const numAmount = parseFloat(amount) || 0;
 
-  const rawBuyEstimate = mode === "buy" && numAmount > 0
-    ? calculateBuyPrice(token.soldSupply, numAmount)
+  // Buy: deduct fees first, then compute tokens from net USD
+  const buyCreatorFee = numAmount * CREATOR_BUY_FEE_RATE;
+  const buyAppFee = numAmount * APP_BUY_FEE_RATE;
+  const netUsdForTokens = numAmount - buyCreatorFee - buyAppFee;
+
+  const rawBuyEstimate = mode === "buy" && netUsdForTokens > 0
+    ? calculateBuyPrice(token.soldSupply, netUsdForTokens)
     : null;
 
   // Cap buy estimate at TOTAL_BONDING_SUPPLY to match store logic
@@ -27,18 +32,23 @@ export default function TradePanel({ token }: TradePanelProps) {
     ? (() => {
         const cappedTokens = TOTAL_BONDING_SUPPLY - token.soldSupply;
         if (cappedTokens <= 0) return null;
-        const K = INITIAL_VIRTUAL_TOKENS * 30;
+        const K = INITIAL_VIRTUAL_TOKENS * INITIAL_VIRTUAL_USD;
         const remainingBefore = INITIAL_VIRTUAL_TOKENS - token.soldSupply;
-        const virtualSolBefore = K / remainingBefore;
+        const virtualUsdBefore = K / remainingBefore;
         const remainingAfter = remainingBefore - cappedTokens;
-        const virtualSolAfter = K / remainingAfter;
-        const actualSolCost = virtualSolAfter - virtualSolBefore;
-        return { tokensOut: cappedTokens, avgPrice: actualSolCost / cappedTokens, newPrice: virtualSolAfter / remainingAfter };
+        const virtualUsdAfter = K / remainingAfter;
+        const actualUsdCost = virtualUsdAfter - virtualUsdBefore;
+        return { tokensOut: cappedTokens, avgPrice: actualUsdCost / cappedTokens, newPrice: virtualUsdAfter / remainingAfter };
       })()
     : rawBuyEstimate;
 
-  const sellEstimate = mode === "sell" && numAmount > 0
+  const rawSellEstimate = mode === "sell" && numAmount > 0
     ? calculateSellPrice(token.soldSupply, numAmount)
+    : null;
+
+  // Sell: deduct 1.5% app fee from proceeds
+  const sellEstimate = rawSellEstimate
+    ? { ...rawSellEstimate, solOut: rawSellEstimate.solOut * (1 - APP_SELL_FEE_RATE) }
     : null;
 
   const handleTrade = () => {
@@ -85,12 +95,12 @@ export default function TradePanel({ token }: TradePanelProps) {
 
       <div className="mt-4">
         <div className="flex items-center justify-between text-xs text-gray-400">
-          <span>{mode === "buy" ? "Amount (SOL)" : "Amount (Tokens)"}</span>
+          <span>{mode === "buy" ? "Amount (USD)" : "Amount (POIN)"}</span>
           {wallet.connected && mode === "buy" && (
-            <span>Balance: {formatSol(wallet.balance)} SOL</span>
+            <span>Balance: {formatUsd(wallet.balance)}</span>
           )}
           {wallet.connected && mode === "sell" && (
-            <span>Balance: {formatNumber(wallet.tokenBalances[token.id] || 0)} {token.ticker}</span>
+            <span>Balance: {formatNumber(wallet.tokenBalances[token.id] || 0)} POIN</span>
           )}
         </div>
         <div className="mt-1 flex items-center rounded-lg border border-gray-700 bg-gray-800 px-3 py-2">
@@ -102,7 +112,7 @@ export default function TradePanel({ token }: TradePanelProps) {
             className="w-full bg-transparent text-lg text-white outline-none placeholder:text-gray-600"
           />
           <span className="ml-2 text-sm text-gray-400">
-            {mode === "buy" ? "SOL" : token.ticker}
+            {mode === "buy" ? "USD" : "POIN"}
           </span>
         </div>
 
@@ -113,38 +123,50 @@ export default function TradePanel({ token }: TradePanelProps) {
               onClick={() => setAmount(qa.toString())}
               className="rounded-md bg-gray-800 px-2 py-1 text-xs text-gray-400 transition-colors hover:bg-gray-700 hover:text-white"
             >
-              {formatNumber(qa)} {mode === "buy" ? "SOL" : ""}
+              {mode === "buy" ? formatUsd(qa) : formatNumber(qa)}
             </button>
           ))}
         </div>
       </div>
 
       {buyEstimate && (
-        <div className="mt-3 rounded-lg bg-gray-800/50 p-3 text-sm">
+        <div className="mt-3 rounded-lg bg-gray-800/50 p-3 text-sm space-y-1">
           <div className="flex items-center justify-between text-gray-400">
             <span>You receive</span>
             <span className="font-semibold text-green-400">
-              ~{formatNumber(buyEstimate.tokensOut)} {token.ticker}
+              ~{formatNumber(buyEstimate.tokensOut)} POIN
             </span>
           </div>
-          <div className="mt-1 flex items-center justify-between text-gray-500 text-xs">
+          <div className="flex items-center justify-between text-gray-500 text-xs">
             <span>Avg. price</span>
-            <span>{formatSol(buyEstimate.avgPrice)} SOL</span>
+            <span>{formatUsd(buyEstimate.avgPrice)}</span>
+          </div>
+          <div className="flex items-center justify-between text-gray-500 text-xs">
+            <span>Creator fee (5%)</span>
+            <span>{formatUsd(buyCreatorFee)}</span>
+          </div>
+          <div className="flex items-center justify-between text-gray-500 text-xs">
+            <span>App fee (1.5%)</span>
+            <span>{formatUsd(buyAppFee)}</span>
           </div>
         </div>
       )}
 
       {sellEstimate && (
-        <div className="mt-3 rounded-lg bg-gray-800/50 p-3 text-sm">
+        <div className="mt-3 rounded-lg bg-gray-800/50 p-3 text-sm space-y-1">
           <div className="flex items-center justify-between text-gray-400">
             <span>You receive</span>
             <span className="font-semibold text-red-400">
-              ~{formatSol(sellEstimate.solOut)} SOL
+              ~{formatUsd(sellEstimate.solOut)}
             </span>
           </div>
-          <div className="mt-1 flex items-center justify-between text-gray-500 text-xs">
+          <div className="flex items-center justify-between text-gray-500 text-xs">
             <span>Avg. price</span>
-            <span>{formatSol(sellEstimate.avgPrice)} SOL</span>
+            <span>{formatUsd(sellEstimate.avgPrice)}</span>
+          </div>
+          <div className="flex items-center justify-between text-gray-500 text-xs">
+            <span>App fee (1.5%)</span>
+            <span>{formatUsd((rawSellEstimate?.solOut || 0) * APP_SELL_FEE_RATE)}</span>
           </div>
         </div>
       )}
@@ -170,7 +192,7 @@ export default function TradePanel({ token }: TradePanelProps) {
             )}
           >
             <ArrowDownUp className="h-4 w-4" />
-            {mode === "buy" ? "Buy" : "Sell"} {token.ticker}
+            {mode === "buy" ? "Buy" : "Sell"} POIN
           </button>
         )}
       </div>

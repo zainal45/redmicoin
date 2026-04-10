@@ -9,7 +9,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { formatSol } from "@/lib/bonding-curve";
+import { formatUsd } from "@/lib/bonding-curve";
 
 interface PriceChartProps {
   token: Token;
@@ -43,11 +43,11 @@ export default function PriceChart({ token }: PriceChartProps) {
         <div className="rounded-lg border border-gray-700 bg-gray-800 p-3 shadow-xl">
           <p className="text-xs text-gray-400">{payload[0].payload.time}</p>
           <p className="text-sm font-semibold text-green-400">
-            {formatSol(payload[0].value)} SOL
+            {formatUsd(payload[0].value)}
           </p>
           {payload[0].payload.volume > 0 && (
             <p className="text-xs text-gray-500">
-              Vol: {formatSol(payload[0].payload.volume)} SOL
+              Vol: {formatUsd(payload[0].payload.volume)}
             </p>
           )}
         </div>
@@ -80,7 +80,7 @@ export default function PriceChart({ token }: PriceChartProps) {
               tick={{ fill: "#6b7280", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={(value: number) => formatSol(value)}
+              tickFormatter={(value: number) => formatUsd(value)}
               width={60}
             />
             <Tooltip content={<CustomTooltip />} />
