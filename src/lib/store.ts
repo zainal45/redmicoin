@@ -8,6 +8,7 @@ import {
   calculateSellPrice,
   calculateMarketCap,
   calculateBondingCurveProgress,
+  TOTAL_BONDING_SUPPLY,
 } from "./bonding-curve";
 import { MOCK_TOKENS } from "./mock-data";
 
@@ -104,10 +105,23 @@ export const useStore = create<AppState>((set, get) => ({
       if (tokenIndex === -1) return state;
 
       const token = state.tokens[tokenIndex];
-      const { tokensOut, avgPrice, newPrice } = calculateBuyPrice(
+      if (token.graduated) return state;
+
+      let { tokensOut, avgPrice, newPrice } = calculateBuyPrice(
         token.soldSupply,
         solAmount
       );
+
+      // Cap purchase so soldSupply does not exceed TOTAL_BONDING_SUPPLY
+      if (token.soldSupply + tokensOut > TOTAL_BONDING_SUPPLY) {
+        tokensOut = TOTAL_BONDING_SUPPLY - token.soldSupply;
+        if (tokensOut <= 0) return state;
+        // Recalculate SOL cost for capped token amount
+        const recalc = calculateBuyPrice(token.soldSupply, solAmount);
+        tokensOut = Math.min(tokensOut, recalc.tokensOut);
+        avgPrice = recalc.avgPrice;
+        newPrice = recalc.newPrice;
+      }
 
       const newTrade: Trade = {
         id: generateId(),
@@ -191,7 +205,7 @@ export const useStore = create<AppState>((set, get) => ({
         priceInSol: newPrice,
         marketCap: calculateMarketCap(newSoldSupply),
         bondingCurveProgress: calculateBondingCurveProgress(newSoldSupply),
-        graduated: calculateBondingCurveProgress(newSoldSupply) >= 100,
+        graduated: token.graduated || calculateBondingCurveProgress(newSoldSupply) >= 100,
         trades: [newTrade, ...token.trades],
         priceHistory: [
           ...token.priceHistory,
