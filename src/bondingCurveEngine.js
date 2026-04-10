@@ -1,20 +1,30 @@
 /**
  * ============================================================
- *  PUMPLIVE — Bonding Curve Math Engine
+ *  PUMPLIVE — Bonding Curve Engine v2 (NO BURN / Reserve Pool)
  * ============================================================
  *
- *  Linear Bonding Curve:  Price = FloorPrice + (k × TokensSold)
+ *  Linear Bonding Curve:  P(x) = a + b * x
  *
- *  ATURAN KRUSIAL:
- *  - Pembelian & penjualan dihitung dengan metode INTEGRAL
- *    (Average Price / Price Impact), BUKAN Total × Harga_Sekarang.
- *  - Fee Buy  = 8% (masuk saldo Admin)
- *  - Fee Sell = 4% (masuk saldo Admin)
- *  - Harga tidak boleh turun di bawah Floor Price (Rp 100)
+ *  KEY DESIGN:
+ *  - Tokens are minted ONLY when users BUY (and no reserve available)
+ *  - Tokens are NEVER burned when users SELL
+ *  - On SELL, tokens go into a reserve pool
+ *  - On BUY, tokens are taken from reserve first, minted only if needed
+ *  - Price is determined ONLY by circulating supply (x)
  *
- *  Integral formula:
- *    Cost(S → S+n) = ∫[S..S+n] (FloorPrice + k·x) dx
- *                  = FloorPrice·n + k·n·(2S + n) / 2
+ *  x = circulating_supply (user-held tokens, NOT including reserve)
+ *
+ *  INTEGRAL PRICING:
+ *    Cost(x_old → x_new) = ∫[x_old..x_new] (a + b·x) dx
+ *                        = a·Δx + b·Δx·(2·x_old + Δx) / 2
+ *
+ *  ANTI-MANIPULATION:
+ *  - Price NEVER set manually — ONLY from P(x)
+ *  - No mint outside BUY
+ *  - No burn at all
+ *  - Reserve tokens tracked separately
+ *  - Liquidity must match integral
+ *  - No fake market cap
  *
  * ============================================================
  */
@@ -24,144 +34,157 @@ const FP_TOLERANCE = 1e-4; // Floating-point tolerance (Rp 0.0001)
 
 // ── Configuration ────────────────────────────────────────────
 const CONFIG = {
-  TOTAL_SUPPLY: 1_000_000_000,       // 1 Miliar Poin
-  FLOOR_PRICE: 100,                   // Rp 100 (harga lantai)
-  TARGET_MARKET_CAP: 100_000_000_000, // Rp 100 Triliun target awal
-  BUY_FEE_RATE: 0.08,                // 8% fee beli
-  SELL_FEE_RATE: 0.04,               // 4% fee jual
-  // k = slope of the bonding curve
-  // Default: price triples (Rp 300) at full supply
-  // 300 = 100 + k * 1_000_000_000  →  k = 2e-7
-  K: 2e-7,
+  MAX_SUPPLY: 1_000_000_000,          // 1 Billion tokens (hard cap)
+  INITIAL_PRICE: 100,                  // a = Rp 100 (initial price)
+  TARGET_PRICE: 300,                   // target price at max supply
+  BUY_FEE_RATE: 0.08,                 // 8% fee on buy
+  SELL_FEE_RATE: 0.04,                // 4% fee on sell
 };
+
+// b = slope = (target_price - initial_price) / max_supply
+CONFIG.SLOPE = (CONFIG.TARGET_PRICE - CONFIG.INITIAL_PRICE) / CONFIG.MAX_SUPPLY; // 2e-7
 
 // ── State (Firebase-ready — serialize this object) ───────────
 function createInitialState() {
   return {
-    totalTokensSold: 0,
-    currentPrice: CONFIG.FLOOR_PRICE,
-    poolLiquidity: 0,   // Rupiah cadangan di pool
-    adminBalance: 0,    // Total fee terkumpul
-    userBalances: {},    // { [userId]: { tokens, investedRupiah } }
+    circulatingSupply: 0,   // tokens held by users (x in the formula)
+    reserveTokens: 0,        // tokens in the reserve pool (returned from sells)
+    totalMinted: 0,           // total tokens ever minted (for audit)
+    liquidity: 0,             // total IDR in pool (must match integral)
+    adminBalance: 0,          // total fee collected
+    price: CONFIG.INITIAL_PRICE, // current spot price P(x)
+    userBalances: {},         // { [userId]: { tokens, investedRupiah } }
   };
 }
 
-// ── Price helpers ────────────────────────────────────────────
+// ── Price Function ───────────────────────────────────────────
 
 /**
- * Get the spot price at a given supply level.
- * Price = FloorPrice + k × tokensSold
+ * P(x) = a + b * x
+ * Price determined ONLY by circulating supply.
  */
-function getPrice(tokensSold) {
-  return CONFIG.FLOOR_PRICE + CONFIG.K * tokensSold;
+function getPrice(circulatingSupply) {
+  return CONFIG.INITIAL_PRICE + CONFIG.SLOPE * circulatingSupply;
 }
 
 /**
- * Cost to buy `n` tokens starting from `currentSold` tokens in circulation.
- * Uses definite integral (area under the curve):
+ * Integral cost: area under curve from x_old to x_old + delta_x
  *
- *   ∫[S..S+n] (FloorPrice + k·x) dx
- *   = FloorPrice·n  +  k/2 · [(S+n)² − S²]
- *   = FloorPrice·n  +  k·n·(2S + n) / 2
+ *   ∫[x_old..x_old+Δx] (a + b·x) dx
+ *   = a·Δx + b·Δx·(2·x_old + Δx) / 2
  */
-function integralCost(currentSold, tokenCount) {
-  const S = currentSold;
-  const n = tokenCount;
-  return CONFIG.FLOOR_PRICE * n + (CONFIG.K * n * (2 * S + n)) / 2;
+function integralCost(xOld, deltaX) {
+  return CONFIG.INITIAL_PRICE * deltaX + (CONFIG.SLOPE * deltaX * (2 * xOld + deltaX)) / 2;
 }
 
 /**
- * Solve for token count `n` given a Rupiah budget.
- * From:  k/2 · n²  +  (FloorPrice + k·S) · n  −  budget = 0
- * Quadratic:  a·n² + b·n + c = 0
- *   a = k/2
- *   b = FloorPrice + k·S
- *   c = −budget
- *   n = (−b + √(b² + 2·k·budget)) / k
+ * Solve for Δx given a budget (how many tokens can be bought with `budget` IDR).
  *
- * Edge case: if k ≈ 0, n = budget / FloorPrice
+ * From:  a·Δx + b/2·Δx² + b·x_old·Δx = budget
+ *        (b/2)·Δx² + (a + b·x_old)·Δx - budget = 0
+ *
+ * Quadratic formula:
+ *   Δx = (-B + √(B² + 2·b·budget)) / b
+ *   where B = a + b·x_old
  */
-function solveTokensForBudget(currentSold, budget) {
+function solveTokensForBudget(xOld, budget) {
   if (budget <= 0) return 0;
 
-  const S = currentSold;
-  const k = CONFIG.K;
-
-  if (k === 0) {
-    return budget / CONFIG.FLOOR_PRICE;
+  const b = CONFIG.SLOPE;
+  if (b === 0) {
+    return budget / CONFIG.INITIAL_PRICE;
   }
 
-  const b = CONFIG.FLOOR_PRICE + k * S;
-  const discriminant = b * b + 2 * k * budget;
+  const B = CONFIG.INITIAL_PRICE + b * xOld;
+  const discriminant = B * B + 2 * b * budget;
 
   if (discriminant < 0) {
     throw new Error('MATH_ERROR: Negative discriminant — invalid state');
   }
 
-  const n = (-b + Math.sqrt(discriminant)) / k;
-  return Math.max(0, n);
+  const deltaX = (-B + Math.sqrt(discriminant)) / b;
+  return Math.max(0, deltaX);
 }
 
 // ── Core Engine Functions ────────────────────────────────────
 
 /**
- * calculateBuy(rupiahAmount, state)
+ * buy(amountIn, feePercent, state)
  *
- * Menghitung berapa token yang didapat dari pembelian dengan sejumlah Rupiah.
+ * BUY tokens using IDR.
  *
- * Flow:
- *  1. Hitung fee (8%) → masuk admin
- *  2. Sisa (92%) digunakan untuk membeli token di kurva
- *  3. Hitung jumlah token menggunakan metode integral (quadratic solve)
- *  4. Validasi: tidak boleh melebihi total supply
+ * Steps:
+ *  1. Deduct fee: net = amountIn * (1 - feePercent)
+ *  2. Solve delta_x using integral
+ *  3. Take tokens from reserve first, mint only if needed
+ *  4. Increase circulating supply
+ *  5. Update liquidity, price
  *
- * @param {number} rupiahAmount  — Jumlah Rupiah yang dibayarkan
- * @param {object} state         — State engine saat ini
- * @returns {{ tokensReceived, averagePrice, newPrice, fee, netCost, state }}
+ * @param {number} amountIn     — IDR amount paid
+ * @param {number} feePercent   — fee rate (e.g. 0.08)
+ * @param {object} state        — current engine state
+ * @returns {{ tokensReceived, fromReserve, newlyMinted, averagePrice, newPrice, fee, netCost, state }}
  */
-function calculateBuy(rupiahAmount, state) {
-  if (rupiahAmount <= 0) {
-    throw new Error('BUY_ERROR: Jumlah Rupiah harus lebih dari 0');
+function buy(amountIn, feePercent, state) {
+  if (amountIn <= 0) {
+    throw new Error('BUY_ERROR: Amount must be greater than 0');
   }
 
-  const fee = rupiahAmount * CONFIG.BUY_FEE_RATE;
-  const netAmount = rupiahAmount - fee; // 92% masuk ke kurva
+  const fee = amountIn * feePercent;
+  const net = amountIn - fee;
 
-  // Solve: berapa token yang bisa dibeli dengan netAmount
-  let tokensReceived = solveTokensForBudget(state.totalTokensSold, netAmount);
+  // Solve: how many tokens can be purchased with `net` IDR
+  let deltaX = solveTokensForBudget(state.circulatingSupply, net);
 
-  // Cap: tidak boleh melebihi sisa supply
-  const remainingSupply = CONFIG.TOTAL_SUPPLY - state.totalTokensSold;
-  if (tokensReceived > remainingSupply) {
-    tokensReceived = remainingSupply;
+  // Cap: total circulating cannot exceed MAX_SUPPLY
+  const maxCanCirculate = CONFIG.MAX_SUPPLY - state.circulatingSupply;
+  if (deltaX > maxCanCirculate) {
+    deltaX = maxCanCirculate;
   }
 
-  if (tokensReceived <= 0) {
-    throw new Error('BUY_ERROR: Supply habis, tidak ada token tersedia');
+  if (deltaX <= 0) {
+    throw new Error('BUY_ERROR: No tokens available — max supply reached');
   }
 
-  // Hitung cost aktual (jika di-cap oleh supply)
-  const actualCost = integralCost(state.totalTokensSold, tokensReceived);
-  // Refund jika netAmount > actualCost (karena supply cap)
-  const refund = netAmount - actualCost;
-  const actualFee = refund > 0 ? fee - refund * (CONFIG.BUY_FEE_RATE / (1 - CONFIG.BUY_FEE_RATE)) : fee;
+  // Actual cost (may differ if capped by supply)
+  const actualCost = integralCost(state.circulatingSupply, deltaX);
+  // Refund excess if capped
+  const refund = net - actualCost;
+  const actualFee = refund > 0
+    ? fee - refund * (feePercent / (1 - feePercent))
+    : fee;
   const finalFee = Math.max(0, actualFee);
 
-  const averagePrice = actualCost / tokensReceived;
-  const newTotalSold = state.totalTokensSold + tokensReceived;
-  const newPrice = getPrice(newTotalSold);
+  // Token sourcing: reserve first, then mint
+  let fromReserve = 0;
+  let newlyMinted = 0;
+
+  if (state.reserveTokens >= deltaX) {
+    fromReserve = deltaX;
+  } else {
+    fromReserve = state.reserveTokens;
+    newlyMinted = deltaX - fromReserve;
+  }
+
+  const averagePrice = actualCost / deltaX;
+  const newCirculating = state.circulatingSupply + deltaX;
+  const newPrice = getPrice(newCirculating);
 
   // Update state
   const newState = {
     ...state,
-    totalTokensSold: newTotalSold,
-    currentPrice: newPrice,
-    poolLiquidity: state.poolLiquidity + actualCost,
+    circulatingSupply: newCirculating,
+    reserveTokens: state.reserveTokens - fromReserve,
+    totalMinted: state.totalMinted + newlyMinted,
+    liquidity: state.liquidity + actualCost,
     adminBalance: state.adminBalance + finalFee,
+    price: newPrice,
   };
 
   return {
-    tokensReceived,
+    tokensReceived: deltaX,
+    fromReserve,
+    newlyMinted,
     averagePrice,
     newPrice,
     fee: finalFee,
@@ -173,71 +196,64 @@ function calculateBuy(rupiahAmount, state) {
 }
 
 /**
- * calculateSell(tokenAmount, state)
+ * sell(tokensToSell, feePercent, state)
  *
- * Menghitung berapa Rupiah yang diterima dari penjualan sejumlah token.
+ * SELL tokens — NO BURN. Tokens go to reserve pool.
  *
- * Flow:
- *  1. Hitung gross proceeds menggunakan integral (area di bawah kurva)
- *     dari (totalTokensSold − tokenAmount) sampai totalTokensSold
- *  2. Hitung fee (4%) → masuk admin
- *  3. Net proceeds (96%) diberikan ke user
- *  4. Token dikembalikan ke reserve (totalTokensSold berkurang)
+ * Steps:
+ *  1. Compute return using reverse integral
+ *  2. Apply fee
+ *  3. Decrease circulating supply
+ *  4. Add tokens to reserve (NOT burned)
+ *  5. Update liquidity, price
  *
- * KRUSIAL: Harga MENURUN saat token ditarik dari sirkulasi.
- *          Hasil penjualan < tokenAmount × hargaSekarang.
- *
- * @param {number} tokenAmount  — Jumlah token yang dijual
- * @param {object} state        — State engine saat ini
+ * @param {number} tokensToSell — number of tokens to sell
+ * @param {number} feePercent   — fee rate (e.g. 0.04)
+ * @param {object} state        — current engine state
  * @returns {{ rupiahReceived, grossProceeds, averagePrice, newPrice, fee, state }}
  */
-function calculateSell(tokenAmount, state) {
-  if (tokenAmount <= 0) {
-    throw new Error('SELL_ERROR: Jumlah token harus lebih dari 0');
+function sell(tokensToSell, feePercent, state) {
+  if (tokensToSell <= 0) {
+    throw new Error('SELL_ERROR: Token amount must be greater than 0');
   }
 
-  if (tokenAmount > state.totalTokensSold) {
-    throw new Error('SELL_ERROR: Tidak bisa menjual lebih dari token yang beredar');
+  if (tokensToSell > state.circulatingSupply) {
+    throw new Error('SELL_ERROR: Cannot sell more than circulating supply');
   }
 
-  // Integral dari (S - n) ke S  =  integral cost of those tokens
-  // Ini = proceeds yang seharusnya user terima (sebelum fee)
-  const S = state.totalTokensSold;
-  const n = tokenAmount;
+  const x = state.circulatingSupply;
+  const n = tokensToSell;
 
-  // ∫[S-n..S] (FloorPrice + k·x) dx = FloorPrice·n + k·n·(2S − n) / 2
-  const grossProceeds =
-    CONFIG.FLOOR_PRICE * n + (CONFIG.K * n * (2 * S - n)) / 2;
+  // Return = ∫[x-n..x] P(t) dt = a·n + b·n·(2x − n) / 2
+  const grossProceeds = CONFIG.INITIAL_PRICE * n + (CONFIG.SLOPE * n * (2 * x - n)) / 2;
 
-  // Validasi: pool harus cukup (dengan toleransi floating-point)
-  if (grossProceeds > state.poolLiquidity + FP_TOLERANCE) {
-    throw new Error(
-      'SELL_ERROR: Pool liquidity tidak mencukupi — kemungkinan kebocoran saldo'
-    );
+  // Validate: liquidity must cover the withdrawal (with FP tolerance)
+  if (grossProceeds > state.liquidity + FP_TOLERANCE) {
+    throw new Error('SELL_ERROR: Insufficient liquidity — possible state corruption');
   }
 
-  // Cap gross ke pool liquidity agar tidak negatif akibat FP error
-  const cappedGross = Math.min(grossProceeds, state.poolLiquidity);
-  const fee = cappedGross * CONFIG.SELL_FEE_RATE;
-  const netProceeds = cappedGross - fee;
+  // Cap to actual liquidity to prevent FP underflow
+  const cappedGross = Math.min(grossProceeds, state.liquidity);
+  const fee = cappedGross * feePercent;
+  const userGets = cappedGross - fee;
 
-  const averagePrice = cappedGross / tokenAmount;
-  const newTotalSold = S - n;
-  const newPrice = getPrice(newTotalSold);
+  const averagePrice = cappedGross / tokensToSell;
+  const newCirculating = x - n;
+  const newPrice = getPrice(newCirculating);
 
-  // Update state — pool berkurang sebesar cappedGross
-  const newPoolLiquidity = state.poolLiquidity - cappedGross;
+  // Update state — tokens go to RESERVE, NOT burned
+  const newLiquidity = state.liquidity - cappedGross;
   const newState = {
     ...state,
-    totalTokensSold: newTotalSold,
-    currentPrice: newPrice,
-    // Clamp ke 0 untuk mencegah -0.0000001 akibat FP
-    poolLiquidity: Math.max(0, newPoolLiquidity),
+    circulatingSupply: newCirculating,
+    reserveTokens: state.reserveTokens + tokensToSell,  // ← NO BURN
+    liquidity: Math.max(0, newLiquidity),
     adminBalance: state.adminBalance + fee,
+    price: newPrice,
   };
 
   return {
-    rupiahReceived: netProceeds,
+    rupiahReceived: userGets,
     grossProceeds: cappedGross,
     averagePrice,
     newPrice,
@@ -246,70 +262,117 @@ function calculateSell(tokenAmount, state) {
   };
 }
 
+// ── Market Metrics (read-only) ───────────────────────────────
+
+/**
+ * Market Cap = price × circulatingSupply
+ */
+function getMarketCap(state) {
+  return state.price * state.circulatingSupply;
+}
+
+/**
+ * FDV (Fully Diluted Valuation) = price × MAX_SUPPLY
+ */
+function getFDV(state) {
+  return state.price * CONFIG.MAX_SUPPLY;
+}
+
+/**
+ * Liquidity = total IDR in pool (must match integral from 0 to circulatingSupply)
+ */
+function getLiquidity(state) {
+  return state.liquidity;
+}
+
+/**
+ * Reserve tokens = tokens sitting in the reserve pool (from sells)
+ */
+function getReserveTokens(state) {
+  return state.reserveTokens;
+}
+
 // ── Utility / Query Functions ────────────────────────────────
 
 /**
- * Hitung estimasi harga rata-rata untuk pembelian sejumlah Rupiah
- * (tanpa mengubah state — read-only).
+ * Estimate buy (read-only, no state mutation).
  */
-function estimateBuy(rupiahAmount, state) {
-  const netAmount = rupiahAmount * (1 - CONFIG.BUY_FEE_RATE);
-  const tokens = solveTokensForBudget(state.totalTokensSold, netAmount);
-  const capped = Math.min(tokens, CONFIG.TOTAL_SUPPLY - state.totalTokensSold);
+function estimateBuy(amountIn, feePercent, state) {
+  const net = amountIn * (1 - feePercent);
+  const deltaX = solveTokensForBudget(state.circulatingSupply, net);
+  const capped = Math.min(deltaX, CONFIG.MAX_SUPPLY - state.circulatingSupply);
   if (capped <= 0) return null;
-  const cost = integralCost(state.totalTokensSold, capped);
+  const cost = integralCost(state.circulatingSupply, capped);
+  const fromReserve = Math.min(state.reserveTokens, capped);
+  const newlyMinted = capped - fromReserve;
   return {
     tokensEstimate: capped,
+    fromReserve,
+    newlyMinted,
     averagePrice: cost / capped,
-    priceImpact: ((getPrice(state.totalTokensSold + capped) - state.currentPrice) / state.currentPrice) * 100,
-    fee: rupiahAmount * CONFIG.BUY_FEE_RATE,
+    priceAfter: getPrice(state.circulatingSupply + capped),
+    priceImpact: ((getPrice(state.circulatingSupply + capped) - state.price) / state.price) * 100,
+    fee: amountIn * feePercent,
   };
 }
 
 /**
- * Hitung estimasi Rupiah yang diterima dari penjualan token
- * (tanpa mengubah state — read-only).
+ * Estimate sell (read-only, no state mutation).
  */
-function estimateSell(tokenAmount, state) {
-  if (tokenAmount <= 0 || tokenAmount > state.totalTokensSold) return null;
-  const S = state.totalTokensSold;
-  const n = tokenAmount;
-  const gross = CONFIG.FLOOR_PRICE * n + (CONFIG.K * n * (2 * S - n)) / 2;
-  const fee = gross * CONFIG.SELL_FEE_RATE;
+function estimateSell(tokensToSell, feePercent, state) {
+  if (tokensToSell <= 0 || tokensToSell > state.circulatingSupply) return null;
+  const x = state.circulatingSupply;
+  const n = tokensToSell;
+  const gross = CONFIG.INITIAL_PRICE * n + (CONFIG.SLOPE * n * (2 * x - n)) / 2;
+  const fee = gross * feePercent;
   return {
     rupiahEstimate: gross - fee,
     grossProceeds: gross,
     averagePrice: gross / n,
-    priceImpact: ((getPrice(S - n) - state.currentPrice) / state.currentPrice) * 100,
+    priceAfter: getPrice(x - n),
+    priceImpact: ((getPrice(x - n) - state.price) / state.price) * 100,
     fee,
   };
 }
 
 /**
- * Hitung persentase kenaikan harga dari floor price (Rp 100).
+ * Verify state integrity: liquidity should match integral from 0 to circulatingSupply.
+ * Returns { valid, expectedLiquidity, actualLiquidity, diff }.
  */
-function getPriceChangePercent(state) {
-  return ((state.currentPrice - CONFIG.FLOOR_PRICE) / CONFIG.FLOOR_PRICE) * 100;
+function verifyIntegrity(state) {
+  const expectedLiquidity = integralCost(0, state.circulatingSupply);
+  const diff = Math.abs(state.liquidity - expectedLiquidity);
+  return {
+    valid: diff <= FP_TOLERANCE,
+    expectedLiquidity,
+    actualLiquidity: state.liquidity,
+    diff,
+  };
 }
 
 /**
- * Hitung market cap saat ini = currentPrice × totalSupply
+ * Price change percent from initial price.
  */
-function getMarketCap(state) {
-  return state.currentPrice * CONFIG.TOTAL_SUPPLY;
+function getPriceChangePercent(state) {
+  return ((state.price - CONFIG.INITIAL_PRICE) / CONFIG.INITIAL_PRICE) * 100;
 }
 
 // ── Exports ──────────────────────────────────────────────────
 module.exports = {
   CONFIG,
+  FP_TOLERANCE,
   createInitialState,
   getPrice,
   integralCost,
   solveTokensForBudget,
-  calculateBuy,
-  calculateSell,
+  buy,
+  sell,
+  getMarketCap,
+  getFDV,
+  getLiquidity,
+  getReserveTokens,
   estimateBuy,
   estimateSell,
+  verifyIntegrity,
   getPriceChangePercent,
-  getMarketCap,
 };
