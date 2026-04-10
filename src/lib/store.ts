@@ -191,6 +191,7 @@ export const useStore = create<AppState>((set, get) => ({
         priceInSol: newPrice,
         marketCap: calculateMarketCap(newSoldSupply),
         bondingCurveProgress: calculateBondingCurveProgress(newSoldSupply),
+        graduated: calculateBondingCurveProgress(newSoldSupply) >= 100,
         trades: [newTrade, ...token.trades],
         priceHistory: [
           ...token.priceHistory,
