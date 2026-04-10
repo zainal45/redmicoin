@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Token } from "@/lib/types";
 import { useStore } from "@/lib/store";
-import { formatNumber, formatSol, calculateBuyPrice, calculateSellPrice } from "@/lib/bonding-curve";
+import { formatNumber, formatSol, calculateBuyPrice, calculateSellPrice, TOTAL_BONDING_SUPPLY, INITIAL_VIRTUAL_TOKENS } from "@/lib/bonding-curve";
 import { cn } from "@/lib/utils";
 import { ArrowDownUp, Wallet } from "lucide-react";
 
@@ -18,9 +18,24 @@ export default function TradePanel({ token }: TradePanelProps) {
 
   const numAmount = parseFloat(amount) || 0;
 
-  const buyEstimate = mode === "buy" && numAmount > 0
+  const rawBuyEstimate = mode === "buy" && numAmount > 0
     ? calculateBuyPrice(token.soldSupply, numAmount)
     : null;
+
+  // Cap buy estimate at TOTAL_BONDING_SUPPLY to match store logic
+  const buyEstimate = rawBuyEstimate && token.soldSupply + rawBuyEstimate.tokensOut > TOTAL_BONDING_SUPPLY
+    ? (() => {
+        const cappedTokens = TOTAL_BONDING_SUPPLY - token.soldSupply;
+        if (cappedTokens <= 0) return null;
+        const K = INITIAL_VIRTUAL_TOKENS * 30;
+        const remainingBefore = INITIAL_VIRTUAL_TOKENS - token.soldSupply;
+        const virtualSolBefore = K / remainingBefore;
+        const remainingAfter = remainingBefore - cappedTokens;
+        const virtualSolAfter = K / remainingAfter;
+        const actualSolCost = virtualSolAfter - virtualSolBefore;
+        return { tokensOut: cappedTokens, avgPrice: actualSolCost / cappedTokens, newPrice: virtualSolAfter / remainingAfter };
+      })()
+    : rawBuyEstimate;
 
   const sellEstimate = mode === "sell" && numAmount > 0
     ? calculateSellPrice(token.soldSupply, numAmount)

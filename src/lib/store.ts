@@ -186,6 +186,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (tokenIndex === -1) return state;
 
       const token = state.tokens[tokenIndex];
+      if (token.graduated) return state;
       if (tokenAmount > token.soldSupply) return state;
 
       const { solOut, avgPrice, newPrice } = calculateSellPrice(
