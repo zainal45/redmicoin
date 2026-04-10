@@ -97,7 +97,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   buyToken: (tokenId, solAmount) => {
     const state = get();
-    if (!state.wallet.connected || state.wallet.balance < solAmount) return;
+    if (!state.wallet.connected || solAmount <= 0 || state.wallet.balance < solAmount) return;
 
     set((state) => {
       const tokenIndex = state.tokens.findIndex((t) => t.id === tokenId);
@@ -159,7 +159,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (!state.wallet.connected) return;
 
     const userTokenBalance = state.wallet.tokenBalances[tokenId] || 0;
-    if (tokenAmount > userTokenBalance) return;
+    if (tokenAmount <= 0 || tokenAmount > userTokenBalance) return;
 
     set((state) => {
       const tokenIndex = state.tokens.findIndex((t) => t.id === tokenId);
