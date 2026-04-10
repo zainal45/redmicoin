@@ -9,6 +9,7 @@ import {
   calculateMarketCap,
   calculateBondingCurveProgress,
   TOTAL_BONDING_SUPPLY,
+  INITIAL_VIRTUAL_TOKENS,
 } from "./bonding-curve";
 import { MOCK_TOKENS } from "./mock-data";
 
@@ -113,21 +114,26 @@ export const useStore = create<AppState>((set, get) => ({
       );
 
       // Cap purchase so soldSupply does not exceed TOTAL_BONDING_SUPPLY
+      let actualSolCost = solAmount;
       if (token.soldSupply + tokensOut > TOTAL_BONDING_SUPPLY) {
         tokensOut = TOTAL_BONDING_SUPPLY - token.soldSupply;
         if (tokensOut <= 0) return state;
-        // Recalculate SOL cost for capped token amount
-        const recalc = calculateBuyPrice(token.soldSupply, solAmount);
-        tokensOut = Math.min(tokensOut, recalc.tokensOut);
-        avgPrice = recalc.avgPrice;
-        newPrice = recalc.newPrice;
+        // Compute actual SOL cost for capped tokens using constant product: K = virtualSol * virtualTokens
+        const K = INITIAL_VIRTUAL_TOKENS * 30; // 30 = INITIAL_VIRTUAL_SOL
+        const remainingBefore = INITIAL_VIRTUAL_TOKENS - token.soldSupply;
+        const virtualSolBefore = K / remainingBefore;
+        const remainingAfter = remainingBefore - tokensOut;
+        const virtualSolAfter = K / remainingAfter;
+        actualSolCost = virtualSolAfter - virtualSolBefore;
+        avgPrice = actualSolCost / tokensOut;
+        newPrice = virtualSolAfter / remainingAfter;
       }
 
       const newTrade: Trade = {
         id: generateId(),
         type: "buy",
         trader: state.wallet.address || "unknown",
-        amountSol: solAmount,
+        amountSol: actualSolCost,
         amountToken: tokensOut,
         pricePerToken: avgPrice,
         timestamp: Date.now(),
@@ -145,7 +151,7 @@ export const useStore = create<AppState>((set, get) => ({
         trades: [newTrade, ...token.trades],
         priceHistory: [
           ...token.priceHistory,
-          { timestamp: Date.now(), price: newPrice, volume: solAmount },
+          { timestamp: Date.now(), price: newPrice, volume: actualSolCost },
         ],
       };
 
@@ -158,7 +164,7 @@ export const useStore = create<AppState>((set, get) => ({
         tokens: newTokens,
         wallet: {
           ...state.wallet,
-          balance: state.wallet.balance - solAmount,
+          balance: state.wallet.balance - actualSolCost,
           tokenBalances: {
             ...state.wallet.tokenBalances,
             [tokenId]: currentTokenBalance + tokensOut,
